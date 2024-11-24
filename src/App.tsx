@@ -3,7 +3,7 @@ import { Play, Square, PlayCircle, Save } from 'lucide-react';
 
 interface SavedSequence {
   id: string;
-  sequence: number[];
+  sequence: { number: number; delay: number }[];
 }
 
 const buttonColors = [
@@ -16,30 +16,47 @@ const buttonColors = [
   'bg-indigo-400',
   'bg-orange-400',
   'bg-teal-400',
+  'bg-lime-400',
+  'bg-cyan-400',
+  'bg-amber-400',
+  'bg-rose-400',
+  'bg-violet-400',
+  'bg-fuchsia-400',
+  'bg-emerald-400',
 ];
 
 function App() {
-  const [currentSequence, setCurrentSequence] = useState<number[]>([]);
+  const [currentSequence, setCurrentSequence] = useState<{ number: number; delay: number }[]>([]);
   const [savedSequences, setSavedSequences] = useState<SavedSequence[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [pressedButton, setPressedButton] = useState<number | null>(null);
   const [playbackIndex, setPlaybackIndex] = useState<number | null>(null);
   const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(null);
+  const [lastPressTime, setLastPressTime] = useState<number | null>(null); // Track the time of the last button press
 
   const handleButtonClick = (number: number) => {
     setPressedButton(number);
     setTimeout(() => setPressedButton(null), 200);
 
+    // Play the corresponding sound
+    const audio = new Audio(`/sounds/sound${number}.mp3`);
+    audio.play();
+
     if (isRecording) {
-      setCurrentSequence((prev) => [...prev, number]);
+      const now = Date.now();
+      const delay = lastPressTime ? now - lastPressTime : 0; // Calculate delay since last button press
+      setLastPressTime(now);
+
+      setCurrentSequence((prev) => [...prev, { number, delay }]);
     }
   };
 
   const toggleRecording = () => {
     setIsRecording((prev) => !prev);
-    if (isRecording) {
-      setCurrentSequence([]);
+    if (!isRecording) {
+      setCurrentSequence([]); // Reset sequence when starting a new recording
+      setLastPressTime(null); // Reset timing
     }
   };
 
@@ -72,11 +89,19 @@ function App() {
         : currentSequence;
 
       if (sequenceToPlay && playbackIndex < sequenceToPlay.length) {
+        const currentAction = sequenceToPlay[playbackIndex];
+
         const timer = setTimeout(() => {
-          setPressedButton(sequenceToPlay[playbackIndex]);
+          setPressedButton(currentAction.number);
+
+          // Play sound for the current button
+          const audio = new Audio(`/sounds/sound${currentAction.number}.mp3`);
+          audio.play();
+
           setTimeout(() => setPressedButton(null), 400);
           setPlaybackIndex(playbackIndex + 1);
-        }, 500);
+        }, currentAction.delay); // Use the recorded delay
+
         return () => clearTimeout(timer);
       } else {
         setIsPlaying(false);
@@ -85,16 +110,16 @@ function App() {
     }
   }, [isPlaying, playbackIndex, selectedSequenceId, savedSequences, currentSequence]);
 
-  const buttons = Array.from({ length: 9 }, (_, i) => i + 1);
+  const buttons = Array.from({ length: 16 }, (_, i) => i + 1); // Generate numbers 1-16 for the 4x4 grid
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
       <h1 className="text-4xl font-bold mb-8 text-white">Neon Music Creator</h1>
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-4 gap-4 mb-8"> {/* Adjust grid to 4x4 */}
         {buttons.map((number, index) => (
           <button
             key={number}
-            className={`w-24 h-24 text-3xl font-bold rounded-lg shadow-lg transition-all duration-300 ${
+            className={`w-20 h-20 text-2xl font-bold rounded-lg shadow-lg transition-all duration-300 ${
               pressedButton === number
                 ? `${buttonColors[index]} text-white transform scale-110 animate-pulse`
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -149,10 +174,10 @@ function App() {
         <div className="w-1/2">
           <h2 className="text-xl font-semibold mb-2 text-white">Current Sequence:</h2>
           <p className="text-lg mb-4">
-            {currentSequence.map((num, index) => (
+            {currentSequence.map((action, index) => (
               <span
                 key={index}
-                className={`inline-block px-3 py-2 mx-1 rounded-full ${buttonColors[num - 1]} ${
+                className={`inline-block px-3 py-2 mx-1 rounded-full ${buttonColors[action.number - 1]} ${
                   playbackIndex !== null && index < playbackIndex
                     ? 'opacity-50'
                     : playbackIndex === index
@@ -160,7 +185,7 @@ function App() {
                     : ''
                 }`}
               >
-                {num}
+                {action.number}
               </span>
             ))}
           </p>
@@ -179,12 +204,12 @@ function App() {
                 <span className="font-semibold text-white">
                   {new Date(seq.id).toLocaleTimeString()}:
                 </span>{' '}
-                {seq.sequence.map((num, index) => (
+                {seq.sequence.map((action, index) => (
                   <span
                     key={index}
-                    className={`inline-block px-2 py-1 mx-1 rounded-full ${buttonColors[num - 1]}`}
+                    className={`inline-block px-2 py-1 mx-1 rounded-full ${buttonColors[action.number - 1]}`}
                   >
-                    {num}
+                    {action.number}
                   </span>
                 ))}
               </li>
