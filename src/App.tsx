@@ -40,7 +40,7 @@ function App() {
     setTimeout(() => setPressedButton(null), 200);
 
     // Play the corresponding sound
-    const audio = new Audio(`/sounds/sound${number}.mp3`);
+    const audio = new Audio(`/sound/sound${number}.mp3`);
     audio.play();
 
     if (isRecording) {
@@ -95,7 +95,7 @@ function App() {
           setPressedButton(currentAction.number);
 
           // Play sound for the current button
-          const audio = new Audio(`/sounds/sound${currentAction.number}.mp3`);
+          const audio = new Audio(`/sound/sound${currentAction.number}.mp3`);
           audio.play();
 
           setTimeout(() => setPressedButton(null), 400);
