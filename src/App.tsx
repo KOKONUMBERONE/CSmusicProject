@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Play, Square, PlayCircle, Save } from 'lucide-react';
+import { Play, Square, PlayCircle, Save, Download } from 'lucide-react';
 
 interface SavedSequence {
   id: string;
@@ -33,7 +33,7 @@ function App() {
   const [pressedButton, setPressedButton] = useState<number | null>(null);
   const [playbackIndex, setPlaybackIndex] = useState<number | null>(null);
   const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(null);
-  const [lastPressTime, setLastPressTime] = useState<number | null>(null); // Track the time of the last button press
+  const [lastPressTime, setLastPressTime] = useState<number | null>(null);
 
   const handleButtonClick = (number: number) => {
     setPressedButton(number);
@@ -55,8 +55,8 @@ function App() {
   const toggleRecording = () => {
     setIsRecording((prev) => !prev);
     if (!isRecording) {
-      setCurrentSequence([]); // Reset sequence when starting a new recording
-      setLastPressTime(null); // Reset timing
+      setCurrentSequence([]);
+      setLastPressTime(null);
     }
   };
 
@@ -100,7 +100,7 @@ function App() {
 
           setTimeout(() => setPressedButton(null), 400);
           setPlaybackIndex(playbackIndex + 1);
-        }, currentAction.delay); // Use the recorded delay
+        }, currentAction.delay);
 
         return () => clearTimeout(timer);
       } else {
@@ -110,12 +110,96 @@ function App() {
     }
   }, [isPlaying, playbackIndex, selectedSequenceId, savedSequences, currentSequence]);
 
-  const buttons = Array.from({ length: 16 }, (_, i) => i + 1); // Generate numbers 1-16 for the 4x4 grid
+  const exportAudio = async () => {
+    const sequenceToExport = selectedSequenceId
+      ? savedSequences.find((seq) => seq.id === selectedSequenceId)?.sequence
+      : currentSequence;
+
+    if (!sequenceToExport || sequenceToExport.length === 0) return;
+
+    const offlineContext = new OfflineAudioContext(1, 44100 * 60, 44100); // 1 channel, 60s max, 44.1kHz
+    const finalBuffer = offlineContext.createBuffer(1, offlineContext.sampleRate * 60, offlineContext.sampleRate);
+
+    const output = finalBuffer.getChannelData(0); // Final audio output buffer
+    let currentPosition = 0; // Track the current position in the output buffer
+
+    for (const { number, delay } of sequenceToExport) {
+      const response = await fetch(`/sound/sound${number}.mp3`);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
+
+      const input = audioBuffer.getChannelData(0); // Sound data
+      const startSample = Math.floor(currentPosition * offlineContext.sampleRate); // Starting sample based on delay
+
+      // Mix sound into the output buffer
+      for (let i = 0; i < input.length; i++) {
+        if (startSample + i < output.length) {
+          output[startSample + i] += input[i];
+        }
+      }
+
+      currentPosition += delay / 1000; // Increment position by delay in seconds
+    }
+
+    // Export the final audio as a WAV file
+    offlineContext.startRendering().then((renderedBuffer) => {
+      const wavBlob = bufferToWave(renderedBuffer);
+      const url = URL.createObjectURL(wavBlob);
+
+      // Trigger file download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = selectedSequenceId ? 'saved_sequence.wav' : 'current_sequence.wav';
+      link.click();
+    });
+  };
+
+  const bufferToWave = (audioBuffer: AudioBuffer) => {
+    const numOfChan = audioBuffer.numberOfChannels;
+    const length = audioBuffer.length * numOfChan * 2 + 44;
+    const buffer = new ArrayBuffer(length);
+    const view = new DataView(buffer);
+
+    // Write WAV header
+    writeUTFBytes(view, 0, 'RIFF');
+    view.setUint32(4, 44 + audioBuffer.length * numOfChan * 2 - 8, true);
+    writeUTFBytes(view, 8, 'WAVE');
+    writeUTFBytes(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numOfChan, true);
+    view.setUint32(24, audioBuffer.sampleRate, true);
+    view.setUint32(28, audioBuffer.sampleRate * numOfChan * 2, true);
+    view.setUint16(32, numOfChan * 2, true);
+    view.setUint16(34, 16, true);
+    writeUTFBytes(view, 36, 'data');
+    view.setUint32(40, audioBuffer.length * numOfChan * 2, true);
+
+    // Write audio data
+    let offset = 44;
+    for (let i = 0; i < numOfChan; i++) {
+      const channelData = audioBuffer.getChannelData(i);
+      for (let sample = 0; sample < audioBuffer.length; sample++) {
+        view.setInt16(offset, channelData[sample] * 0x7fff, true);
+        offset += 2;
+      }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  };
+
+  const writeUTFBytes = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  const buttons = Array.from({ length: 16 }, (_, i) => i + 1);
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
       <h1 className="text-4xl font-bold mb-8 text-white">Neon Music Creator</h1>
-      <div className="grid grid-cols-4 gap-4 mb-8"> {/* Adjust grid to 4x4 */}
+      <div className="grid grid-cols-4 gap-4 mb-8">
         {buttons.map((number, index) => (
           <button
             key={number}
@@ -168,6 +252,13 @@ function App() {
           disabled={isPlaying || currentSequence.length === 0}
         >
           <Save className="w-5 h-5 mr-2" /> Save Sequence
+        </button>
+        <button
+          className="flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors bg-blue-500 hover:bg-blue-600"
+          onClick={exportAudio}
+          disabled={currentSequence.length === 0 && !selectedSequenceId}
+        >
+          <Download className="w-5 h-5 mr-2" /> Export Audio
         </button>
       </div>
       <div className="w-full max-w-2xl flex space-x-8">
