@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Play, Square, PlayCircle, Save, Download } from 'lucide-react';
 
+
 interface SavedSequence {
   id: string;
   sequence: { number: number; delay: number }[];
@@ -111,56 +112,95 @@ function App() {
   }, [isPlaying, playbackIndex, selectedSequenceId, savedSequences, currentSequence]);
 
   const exportAudio = async () => {
+    console.log('Export Audio process started.');
+  
     const sequenceToExport = selectedSequenceId
       ? savedSequences.find((seq) => seq.id === selectedSequenceId)?.sequence
       : currentSequence;
-
-    if (!sequenceToExport || sequenceToExport.length === 0) return;
-
-    const offlineContext = new OfflineAudioContext(1, 44100 * 60, 44100); // 1 channel, 60s max, 44.1kHz
-    const finalBuffer = offlineContext.createBuffer(1, offlineContext.sampleRate * 60, offlineContext.sampleRate);
-
-    const output = finalBuffer.getChannelData(0); // Final audio output buffer
-    let currentPosition = 0; // Track the current position in the output buffer
-
-    for (const { number, delay } of sequenceToExport) {
-      const response = await fetch(`/sound/sound${number}.mp3`);
-      const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
-
-      const input = audioBuffer.getChannelData(0); // Sound data
-      const startSample = Math.floor(currentPosition * offlineContext.sampleRate); // Starting sample based on delay
-
-      // Mix sound into the output buffer
-      for (let i = 0; i < input.length; i++) {
-        if (startSample + i < output.length) {
-          output[startSample + i] += input[i];
-        }
-      }
-
-      currentPosition += delay / 1000; // Increment position by delay in seconds
+  
+    if (!sequenceToExport || sequenceToExport.length === 0) {
+      console.warn('No sequence available to export.');
+      return;
     }
-
-    // Export the final audio as a WAV file
+  
+    console.log('Sequence to export:', sequenceToExport);
+  
+    const offlineContext = new OfflineAudioContext(1, 44100 * 60, 44100); // 1 channel, 60s max, 44.1kHz
+    let currentTime = 0; // 当前音频时间，用于控制音频叠加播放时间
+  
+    for (const { number, delay } of sequenceToExport) {
+      try {
+        console.log(`Fetching sound file: /sound/sound${number}.mp3`);
+        const response = await fetch(`/sound/sound${number}.mp3`);
+  
+        if (!response.ok) {
+          console.error(`Failed to fetch sound${number}.mp3. HTTP status:`, response.status);
+          continue;
+        }
+  
+        const arrayBuffer = await response.arrayBuffer();
+        console.log(`Decoding audio data for sound${number}.mp3`);
+        const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
+  
+        console.log(`Decoded audio data for sound${number}:`, audioBuffer.getChannelData(0).slice(0, 20));
+  
+        // 创建音频源节点
+        const source = offlineContext.createBufferSource();
+        source.buffer = audioBuffer;
+  
+        // 连接到 OfflineAudioContext 的 destination
+        source.connect(offlineContext.destination);
+  
+        // 调整播放时间为当前时间 + 按钮间隔
+        const startTime = currentTime + delay / 1000;
+        source.start(startTime);
+        console.log(`Scheduled sound${number} at time:`, startTime);
+  
+        // 更新当前时间为该音频播放的结束时间
+        currentTime = startTime;
+      } catch (error) {
+        console.error(`Error processing sound${number}.mp3:`, error);
+      }
+    }
+  
+    console.log('Starting rendering of the final audio buffer.');
     offlineContext.startRendering().then((renderedBuffer) => {
+      console.log('Rendering completed.');
+  
+      // 检查渲染后的缓冲区数据
+      const renderedData = renderedBuffer.getChannelData(0);
+      console.log('Rendered buffer data (first 20 samples):', renderedData.slice(0, 20));
+  
+      if (renderedData.every((sample) => sample === 0)) {
+        console.error('Rendered buffer contains only silence.');
+        return;
+      }
+  
+      console.log('Converting rendered buffer to WAV.');
       const wavBlob = bufferToWave(renderedBuffer);
       const url = URL.createObjectURL(wavBlob);
-
-      // Trigger file download
+  
+      console.log('WAV file URL:', url);
+  
+      // 触发下载
       const link = document.createElement('a');
       link.href = url;
       link.download = selectedSequenceId ? 'saved_sequence.wav' : 'current_sequence.wav';
       link.click();
+  
+      console.log('Download triggered.');
+    }).catch((renderingError) => {
+      console.error('Error during audio rendering:', renderingError);
     });
-  };
+  };  
 
   const bufferToWave = (audioBuffer: AudioBuffer) => {
     const numOfChan = audioBuffer.numberOfChannels;
     const length = audioBuffer.length * numOfChan * 2 + 44;
     const buffer = new ArrayBuffer(length);
     const view = new DataView(buffer);
-
-    // Write WAV header
+  
+    // 写入 WAV 头部
     writeUTFBytes(view, 0, 'RIFF');
     view.setUint32(4, 44 + audioBuffer.length * numOfChan * 2 - 8, true);
     writeUTFBytes(view, 8, 'WAVE');
@@ -174,19 +214,21 @@ function App() {
     view.setUint16(34, 16, true);
     writeUTFBytes(view, 36, 'data');
     view.setUint32(40, audioBuffer.length * numOfChan * 2, true);
-
-    // Write audio data
+  
+    // 写入音频数据，放大音量
     let offset = 44;
     for (let i = 0; i < numOfChan; i++) {
       const channelData = audioBuffer.getChannelData(i);
       for (let sample = 0; sample < audioBuffer.length; sample++) {
-        view.setInt16(offset, channelData[sample] * 0x7fff, true);
+        const scaledSample = Math.max(-1, Math.min(1, channelData[sample])); // 保持原始音量
+        view.setInt16(offset, scaledSample < 0 ? scaledSample * 0x8000 : scaledSample * 0x7fff, true);
         offset += 2;
       }
     }
-
+  
     return new Blob([buffer], { type: 'audio/wav' });
   };
+  
 
   const writeUTFBytes = (view: DataView, offset: number, string: string) => {
     for (let i = 0; i < string.length; i++) {
