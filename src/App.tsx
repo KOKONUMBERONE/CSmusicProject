@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Play, Square, PlayCircle, Save, Download } from 'lucide-react';
+import CustomSoundFeature from './CustomSoundFeature';
 
 
 interface SavedSequence {
@@ -27,6 +28,9 @@ const buttonColors = [
 ];
 
 function App() {
+  const [customSounds, setCustomSounds] = useState<{ [key: number]: string }>({});
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedButton, setSelectedButton] = useState<number | null>(null);
   const [currentSequence, setCurrentSequence] = useState<{ number: number; delay: number }[]>([]);
   const [savedSequences, setSavedSequences] = useState<SavedSequence[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -36,13 +40,20 @@ function App() {
   const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(null);
   const [lastPressTime, setLastPressTime] = useState<number | null>(null);
 
+  const handleCustomSoundUpload = (buttonNumber: number, soundUrl: string) => {
+    setCustomSounds((prev) => ({ ...prev, [buttonNumber]: soundUrl }));
+  };
+
+  
   const handleButtonClick = (number: number) => {
     setPressedButton(number);
     setTimeout(() => setPressedButton(null), 200);
-
-    // Play the corresponding sound
-    const audio = new Audio(`/sound/sound${number}.mp3`);
+  
+    // Check if a custom sound exists for this button
+    const soundUrl = customSounds[number] || `/sound/sound${number}.mp3`;
+    const audio = new Audio(soundUrl);
     audio.play();
+  
 
     if (isRecording) {
       const now = Date.now();
@@ -88,29 +99,39 @@ function App() {
       const sequenceToPlay = selectedSequenceId
         ? savedSequences.find((seq) => seq.id === selectedSequenceId)?.sequence
         : currentSequence;
-
+  
       if (sequenceToPlay && playbackIndex < sequenceToPlay.length) {
         const currentAction = sequenceToPlay[playbackIndex];
-
+  
+        // Calculate the delay before playing the sound
+        const delay = currentAction.delay || 0;
+  
         const timer = setTimeout(() => {
-          setPressedButton(currentAction.number);
-
-          // Play sound for the current button
-          const audio = new Audio(`/sound/sound${currentAction.number}.mp3`);
+          // Play the sound
+          const soundUrl = customSounds[currentAction.number]
+            ? customSounds[currentAction.number]
+            : `/sound/sound${currentAction.number}.mp3`;
+  
+          const audio = new Audio(soundUrl);
           audio.play();
-
+  
+          // Visual feedback for the button press
+          setPressedButton(currentAction.number);
           setTimeout(() => setPressedButton(null), 400);
+  
+          // Move to the next button in the sequence
           setPlaybackIndex(playbackIndex + 1);
-        }, currentAction.delay);
-
+        }, delay); // Use the recorded delay for this action
+  
         return () => clearTimeout(timer);
       } else {
+        // Playback finished
         setIsPlaying(false);
         setPlaybackIndex(null);
       }
     }
-  }, [isPlaying, playbackIndex, selectedSequenceId, savedSequences, currentSequence]);
-
+  }, [isPlaying, playbackIndex, selectedSequenceId, savedSequences, currentSequence, customSounds]);
+  
   const exportAudio = async () => {
     console.log('Export Audio process started.');
   
@@ -126,40 +147,41 @@ function App() {
     console.log('Sequence to export:', sequenceToExport);
   
     const offlineContext = new OfflineAudioContext(1, 44100 * 60, 44100); // 1 channel, 60s max, 44.1kHz
-    let currentTime = 0; // 当前音频时间，用于控制音频叠加播放时间
+    let currentTime = 0; // Current time for placing sounds in the buffer
   
     for (const { number, delay } of sequenceToExport) {
       try {
-        console.log(`Fetching sound file: /sound/sound${number}.mp3`);
-        const response = await fetch(`/sound/sound${number}.mp3`);
+        // Determine whether to use a custom sound or the default sound
+        const soundUrl = customSounds[number]
+          ? customSounds[number]
+          : `/sound/sound${number}.mp3`;
+  
+        console.log(`Fetching sound file: ${soundUrl}`);
+        const response = await fetch(soundUrl);
   
         if (!response.ok) {
-          console.error(`Failed to fetch sound${number}.mp3. HTTP status:`, response.status);
+          console.error(`Failed to fetch sound ${number}. HTTP status:`, response.status);
           continue;
         }
   
         const arrayBuffer = await response.arrayBuffer();
-        console.log(`Decoding audio data for sound${number}.mp3`);
+        console.log(`Decoding audio data for sound ${number}`);
         const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
   
-        console.log(`Decoded audio data for sound${number}:`, audioBuffer.getChannelData(0).slice(0, 20));
-  
-        // 创建音频源节点
+        // Create a source node and schedule the sound
         const source = offlineContext.createBufferSource();
         source.buffer = audioBuffer;
   
-        // 连接到 OfflineAudioContext 的 destination
         source.connect(offlineContext.destination);
   
-        // 调整播放时间为当前时间 + 按钮间隔
-        const startTime = currentTime + delay / 1000;
+        const startTime = currentTime + delay / 1000; // Convert delay to seconds
         source.start(startTime);
-        console.log(`Scheduled sound${number} at time:`, startTime);
+        console.log(`Scheduled sound ${number} at time:`, startTime);
   
-        // 更新当前时间为该音频播放的结束时间
-        currentTime = startTime;
+        // Update currentTime to account for the length of the sound
+        currentTime = startTime + audioBuffer.duration;
       } catch (error) {
-        console.error(`Error processing sound${number}.mp3:`, error);
+        console.error(`Error processing sound ${number}:`, error);
       }
     }
   
@@ -167,22 +189,10 @@ function App() {
     offlineContext.startRendering().then((renderedBuffer) => {
       console.log('Rendering completed.');
   
-      // 检查渲染后的缓冲区数据
-      const renderedData = renderedBuffer.getChannelData(0);
-      console.log('Rendered buffer data (first 20 samples):', renderedData.slice(0, 20));
-  
-      if (renderedData.every((sample) => sample === 0)) {
-        console.error('Rendered buffer contains only silence.');
-        return;
-      }
-  
-      console.log('Converting rendered buffer to WAV.');
       const wavBlob = bufferToWave(renderedBuffer);
       const url = URL.createObjectURL(wavBlob);
   
-      console.log('WAV file URL:', url);
-  
-      // 触发下载
+      // Trigger download
       const link = document.createElement('a');
       link.href = url;
       link.download = selectedSequenceId ? 'saved_sequence.wav' : 'current_sequence.wav';
@@ -192,7 +202,8 @@ function App() {
     }).catch((renderingError) => {
       console.error('Error during audio rendering:', renderingError);
     });
-  };  
+  };
+  
 
   const bufferToWave = (audioBuffer: AudioBuffer) => {
     const numOfChan = audioBuffer.numberOfChannels;
@@ -239,25 +250,31 @@ function App() {
   const buttons = Array.from({ length: 16 }, (_, i) => i + 1);
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
-      <h1 className="text-4xl font-bold mb-8 text-white">Neon Music Creator</h1>
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        {buttons.map((number, index) => (
-          <button
-            key={number}
-            className={`w-20 h-20 text-2xl font-bold rounded-lg shadow-lg transition-all duration-300 ${
-              pressedButton === number
-                ? `${buttonColors[index]} text-white transform scale-110 animate-pulse`
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-            onClick={() => handleButtonClick(number)}
-            disabled={isPlaying}
-          >
-            {number}
-          </button>
-        ))}
-      </div>
-      <div className="flex space-x-4 mb-8">
+    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8">
+    <h1 className="text-5xl font-bold mb-8 text-white">Neon Music Creator</h1>
+  
+    {/* Launchpad */}
+    <div className="grid grid-cols-4 gap-6 mb-12">
+      {buttons.map((number, index) => (
+        <button
+          key={number}
+          className={`w-24 h-24 text-3xl font-bold rounded-lg shadow-lg transition-all duration-300 ${
+            pressedButton === number
+              ? `${buttonColors[index]} text-white transform scale-110 animate-pulse`
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:shadow-xl hover:scale-105'
+          }`}
+          onClick={() => handleButtonClick(number)}
+        >
+          {number}
+        </button>
+      ))}
+    </div>
+  
+
+  
+      {/* Controls with Dropdown for Custom Sound */}
+      <div className="flex space-x-4 mb-8 items-center">
+        {/* Record Button */}
         <button
           className={`flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors ${
             isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
@@ -275,6 +292,8 @@ function App() {
             </>
           )}
         </button>
+  
+        {/* Playback Button */}
         <button
           className={`flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors bg-purple-500 hover:bg-purple-600 ${
             isPlaying ? 'opacity-50 cursor-not-allowed' : ''
@@ -284,6 +303,8 @@ function App() {
         >
           <PlayCircle className="w-5 h-5 mr-2" /> Playback
         </button>
+  
+        {/* Save Sequence */}
         <button
           className={`flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors ${
             currentSequence.length > 0
@@ -295,6 +316,8 @@ function App() {
         >
           <Save className="w-5 h-5 mr-2" /> Save Sequence
         </button>
+  
+        {/* Export Audio */}
         <button
           className="flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors bg-blue-500 hover:bg-blue-600"
           onClick={exportAudio}
@@ -302,7 +325,68 @@ function App() {
         >
           <Download className="w-5 h-5 mr-2" /> Export Audio
         </button>
+  
+        {/* Add Custom Sound Dropdown */}
+        <div className="relative">
+    <button className="bg-yellow-500 text-white px-6 py-3 rounded-lg hover:bg-yellow-600 shadow-md">
+      Add Custom Sound
+    </button>
+  <div className="absolute mt-2 w-64 bg-gray-800 rounded-lg shadow-lg border border-gray-700 text-white z-10">
+    <div className="p-4">
+      <label className="block mb-2 text-sm font-semibold">Choose Button:</label>
+      <select
+        className="w-full p-2 rounded bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+        onChange={(e) => setSelectedButton(Number(e.target.value))}
+      >
+        <option value="">-- Select Button --</option>
+        {buttons.map((num) => (
+          <option key={num} value={num}>
+            Button {num}
+          </option>
+        ))}
+      </select>
+    </div>
+    <div className="p-4 border-t border-gray-700">
+      <label className="block mb-2 text-sm font-semibold">Upload Sound:</label>
+      <input
+        type="file"
+        accept="audio/mp3"
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files && files.length > 0) {
+            setSelectedFile(files[0]);
+          } else {
+            setSelectedFile(null);
+          }
+        }}
+        className="block w-full text-xs text-gray-300 file:bg-gray-600 file:text-white file:rounded file:px-2 file:py-1 hover:file:bg-yellow-500"
+      />
+    </div>
+    <div className="p-4 border-t border-gray-700">
+      <button
+        className={`w-full px-4 py-2 rounded bg-green-500 hover:bg-green-600 text-white font-semibold shadow-md ${
+          selectedButton && selectedFile ? '' : 'opacity-50 cursor-not-allowed'
+        }`}
+        onClick={() => {
+          if (selectedButton && selectedFile) {
+            const url = URL.createObjectURL(selectedFile);
+            setCustomSounds((prev) => ({ ...prev, [selectedButton]: url }));
+            setSelectedFile(null);
+            setSelectedButton(null);
+          }
+        }}
+        disabled={!selectedButton || !selectedFile}
+      >
+        Map Sound to Button
+      </button>
+    </div>
+  </div>
+</div>
+
+
       </div>
+  
+      {/* Current Sequence */}
       <div className="w-full max-w-2xl flex space-x-8">
         <div className="w-1/2">
           <h2 className="text-xl font-semibold mb-2 text-white">Current Sequence:</h2>
@@ -352,6 +436,7 @@ function App() {
       </div>
     </div>
   );
+  
 }
 
 export default App;
