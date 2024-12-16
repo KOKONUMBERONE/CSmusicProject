@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Play, Square, PlayCircle, Save, Download } from 'lucide-react';
 import CustomSoundFeature from './CustomSoundFeature';
+import KeyboardControls from './KeyboardControls';
+
 
 
 interface SavedSequence {
@@ -252,6 +254,8 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8">
     <h1 className="text-5xl font-bold mb-8 text-white">Neon Music Creator</h1>
+    {/* Keyboard Controls */}
+    <KeyboardControls onKeyTrigger={handleButtonClick} />
   
     {/* Launchpad */}
     <div className="grid grid-cols-4 gap-6 mb-12">
