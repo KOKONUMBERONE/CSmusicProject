@@ -149,38 +149,49 @@ function App() {
       return;
     }
   
-    const offlineContext = new OfflineAudioContext(1, 44100 * 60, 44100);
+    let sampleRate = 44100; // Default sample rate
+    const firstSound = sequenceToExport[0];
+  
+    // Determine the correct sample rate from the first sound
+    if (customSounds[firstSound.number]?.file) {
+      const arrayBuffer = await customSounds[firstSound.number].file.arrayBuffer();
+      const tempContext = new AudioContext();
+      const tempBuffer = await tempContext.decodeAudioData(arrayBuffer);
+      sampleRate = tempBuffer.sampleRate; // Match the sample rate
+      tempContext.close();
+    }
+  
+    // Create OfflineAudioContext with the matched sample rate
+    const offlineContext = new OfflineAudioContext(1, sampleRate * 60, sampleRate);
+  
     let currentTime = 0;
   
     for (const { number, delay } of sequenceToExport) {
       try {
         let audioBuffer;
-    
+  
         if (customSounds[number]?.file) {
-          // Decode custom sound from File object
+          // Decode custom sound
           const arrayBuffer = await customSounds[number].file.arrayBuffer();
           audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
         } else {
-          // Fetch default sound
+          // Fetch and decode default sound
           const response = await fetch(`/sound/sound${number}.mp3`);
-          if (!response.ok) throw new Error(`Failed to fetch default sound: ${number}`);
           const arrayBuffer = await response.arrayBuffer();
           audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
         }
-    
+  
+        // Schedule the sound to play at the correct time
         const source = offlineContext.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(offlineContext.destination);
-    
+  
         const startTime = currentTime + delay / 1000;
         source.start(startTime);
-        currentTime = startTime + audioBuffer.duration;
-    
       } catch (error) {
         console.error(`Error processing sound ${number}:`, error);
       }
     }
-    
   
     console.log('Starting rendering of the final audio buffer.');
     offlineContext.startRendering().then((renderedBuffer) => {
@@ -198,14 +209,14 @@ function App() {
   };
   
   
-
+  // Function to convert AudioBuffer to WAV
   const bufferToWave = (audioBuffer: AudioBuffer) => {
     const numOfChan = audioBuffer.numberOfChannels;
     const length = audioBuffer.length * numOfChan * 2 + 44;
     const buffer = new ArrayBuffer(length);
     const view = new DataView(buffer);
   
-    // 写入 WAV 头部
+    // Write WAV header
     writeUTFBytes(view, 0, 'RIFF');
     view.setUint32(4, 44 + audioBuffer.length * numOfChan * 2 - 8, true);
     writeUTFBytes(view, 8, 'WAVE');
@@ -220,12 +231,12 @@ function App() {
     writeUTFBytes(view, 36, 'data');
     view.setUint32(40, audioBuffer.length * numOfChan * 2, true);
   
-    // 写入音频数据，放大音量
+    // Write audio data
     let offset = 44;
     for (let i = 0; i < numOfChan; i++) {
       const channelData = audioBuffer.getChannelData(i);
       for (let sample = 0; sample < audioBuffer.length; sample++) {
-        const scaledSample = Math.max(-1, Math.min(1, channelData[sample])); // 保持原始音量
+        const scaledSample = Math.max(-1, Math.min(1, channelData[sample]));
         view.setInt16(offset, scaledSample < 0 ? scaledSample * 0x8000 : scaledSample * 0x7fff, true);
         offset += 2;
       }
@@ -234,12 +245,12 @@ function App() {
     return new Blob([buffer], { type: 'audio/wav' });
   };
   
-
   const writeUTFBytes = (view: DataView, offset: number, string: string) => {
     for (let i = 0; i < string.length; i++) {
       view.setUint8(offset + i, string.charCodeAt(i));
     }
   };
+  
 
   const buttons = Array.from({ length: 16 }, (_, i) => i + 1);
 
