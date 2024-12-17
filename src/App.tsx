@@ -302,20 +302,22 @@ function App() {
   
         {/* Save Sequence */}
         <button
-          className={`flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors ${
-            currentSequence.length > 0
-              ? 'bg-indigo-500 hover:bg-indigo-600'
-              : 'bg-gray-400 cursor-not-allowed'
-          }`}
-          onClick={saveSequence}
-          disabled={isPlaying || currentSequence.length === 0}
-        >
-          <Save className="w-5 h-5 mr-2" /> Save Sequence
-        </button>
+  className={`flex items-center justify-center min-w-[185px] px-6 py-3 rounded-full text-white font-semibold transition-colors ${
+    currentSequence.length > 0
+      ? 'bg-indigo-500 hover:bg-indigo-600 shadow-md'
+      : 'bg-gray-400 cursor-not-allowed opacity-50'
+  }`}
+  onClick={saveSequence}
+  disabled={isPlaying || currentSequence.length === 0}
+>
+  <Save className="w-5 h-5 mr-2" /> Save Sequence
+</button>
+
+
   
         {/* Export Audio */}
         <button
-          className="flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold transition-colors bg-blue-500 hover:bg-blue-600"
+          className="flex items-center justify-center min-w-[190px] px-6 py-3 rounded-full text-white font-semibold bg-blue-500 hover:bg-blue-600 shadow-md"
           onClick={exportAudio}
           disabled={currentSequence.length === 0 && !selectedSequenceId}
         >
@@ -335,57 +337,56 @@ function App() {
   <div className="absolute mt-2 w-full bg-gray-800 rounded-lg shadow-lg border border-gray-700 text-white z-10">
     {/* Button Selector */}
     <div className="p-4">
-      <label className="block mb-2 text-sm font-semibold">Choose Button:</label>
-      <select
-        className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-        onChange={(e) => setSelectedButton(Number(e.target.value))}
-        value={selectedButton || ''}
-      >
-        <option value="">-- Select Button --</option>
-        {buttons.map((num) => (
-          <option key={num} value={num}>
-            Button {num}
-          </option>
-        ))}
-      </select>
-    </div>
+  <label className="block mb-2 text-sm font-semibold">Choose Button:</label>
+  <select
+    className="w-full p-4 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+    onChange={(e) => setSelectedButton(Number(e.target.value))}
+    value={selectedButton || ''}
+  >
+    <option value="">-- Select Button --</option>
+    {buttons.map((num) => (
+      <option key={num} value={num}>
+        Button {num}
+      </option>
+    ))}
+  </select>
+</div>
 
     {/* File Upload Section */}
-    <div className="p-4 border-t border-gray-700">
-      <label className="block mb-2 text-sm font-semibold">Upload Sound:</label>
-      <div className="flex items-center space-x-4">
-        <input
-          key={fileInputKey}
-          type="file"
-          accept="audio/mp3"
-          id="file-upload"
-          className="hidden"
-          onChange={(e) => {
-            const files = e.target.files;
-            if (files && files.length > 0) {
-              setSelectedFile(files[0]);
-              setSelectedFileName(files[0].name);
-              setFileInputKey(Date.now());
-            } else {
-              setSelectedFileName(null);
-            }
-          }}
-        />
+    <div className="p-6 border-t border-gray-700">
+  <label className="block mb-4 text-sm font-semibold">Upload Sound:</label>
+  <div className="flex flex-col space-y-4">
+    <input
+      key={fileInputKey}
+      type="file"
+      accept="audio/mp3"
+      id="file-upload"
+      className="hidden"
+      onChange={(e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+          setSelectedFile(files[0]);
+          setSelectedFileName(files[0].name);
+          setFileInputKey(Date.now());
+        } else {
+          setSelectedFileName(null);
+        }
+      }}
+    />
+    <label
+      htmlFor="file-upload"
+      className="cursor-pointer flex items-center justify-center px-6 py-3 rounded-full text-white font-semibold bg-blue-500 hover:bg-blue-600 shadow-md"
+    >
+      Choose File
+    </label>
 
-        {/* Custom File Button */}
-        <label
-          htmlFor="file-upload"
-          className="cursor-pointer px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-md shadow-md"
-        >
-          Choose File
-        </label>
+    {/* Display file name */}
+    <span className="text-sm text-green-400 text-center truncate">
+      {selectedFileName || 'No file selected'}
+    </span>
+  </div>
+</div>
 
-        {/* File Name Display */}
-        <span className="text-sm text-green-400 truncate w-full">
-          {selectedFileName || 'No file selected'}
-        </span>
-      </div>
-    </div>
 
     {/* Map Sound Button */}
     <div className="p-4 border-t border-gray-700">
